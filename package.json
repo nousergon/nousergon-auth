@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate": "better-auth migrate --config src/auth.ts -y"
   },
   "dependencies": {
     "better-auth": "^1.6.15",
@@ -17,6 +18,7 @@
     "resend": "^4.0.1"
   },
   "devDependencies": {
+    "@better-auth/cli": "^1.5.0-beta.13",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.19.43",
     "tsx": "^4.19.2",
