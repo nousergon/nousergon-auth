@@ -13,6 +13,22 @@ REPO=/home/ec2-user/nousergon-auth
 echo "=== nousergon-auth deploy $(date -u +%FT%TZ) — $(git -C "$REPO" rev-parse --short HEAD) ==="
 
 cd "$REPO"
+
+# Pin the WHOLE toolchain (install/build/migrate) to node-22, matching the unit's
+# runtime: native modules (better-sqlite3) must be built against the SAME ABI they
+# run under — the first live deploy crash-looped on NODE_MODULE_VERSION 108 vs 127
+# because npm ran under the box-default Node 18 (EOL; box-wide swap is
+# nous-ergon-ops#17, after which this shim and the unit's node-22 pin both retire).
+# A shim dir is needed because npm lifecycle scripts resolve `node` via PATH and
+# /usr/bin/node still points at node-18.
+NODE_SHIM=$(mktemp -d)
+trap 'rm -rf "$NODE_SHIM"' EXIT
+ln -sf /usr/bin/node-22 "$NODE_SHIM/node"
+ln -sf /usr/bin/npm-22 "$NODE_SHIM/npm"
+ln -sf /usr/bin/npx-22 "$NODE_SHIM/npx"
+export PATH="$NODE_SHIM:$PATH"
+echo "toolchain: node $(node --version), npm $(npm --version)"
+
 npm install --no-audit --no-fund --silent || { echo "npm install FAILED"; exit 1; }
 npm run build || { echo "build FAILED"; exit 1; }
 
