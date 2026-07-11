@@ -1,0 +1,26 @@
+{
+  "name": "nousergon-auth",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared, self-hosted identity service (Better Auth) for Nous Ergon products — magic-link auth + JWT/JWKS verification, used by Metron and Vires. Owns identity only; each product keeps its own tenant/workspace concept.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-auth": "^1.6.15",
+    "better-sqlite3": "^12.10.0",
+    "resend": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.19.43",
+    "tsx": "^4.19.2",
+    "typescript": "5.6.3",
+    "vitest": "^4.1.8"
+  }
+}

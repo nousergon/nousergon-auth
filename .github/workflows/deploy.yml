@@ -1,0 +1,90 @@
+name: Deploy nousergon-auth via SSM
+
+# Push to main (or manual) → assume the shared OIDC role → SSM to the dashboard EC2 →
+# pull this repo + rebuild + restart + health-check. Mirrors metron's deploy.yml.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: nousergon-auth-deploy
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy nousergon-auth via SSM
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # The dashboard EC2 (shared box) — set via: gh variable set AUTH_INSTANCE_ID.
+      AUTH_INSTANCE_ID: ${{ vars.AUTH_INSTANCE_ID }}
+
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::711398986525:role/github-actions-lambda-deploy
+          aws-region: us-east-1
+
+      - name: Send SSM deploy command
+        id: send
+        run: |
+          set -euo pipefail
+          CMD_BODY="flock -w 600 /tmp/nousergon-auth-deploy.lock -c 'set -e; sudo -u ec2-user git -C /home/ec2-user/nousergon-auth fetch origin --quiet && sudo -u ec2-user git -C /home/ec2-user/nousergon-auth reset --hard ${GITHUB_SHA} --quiet && sudo -u ec2-user bash /home/ec2-user/nousergon-auth/infrastructure/deploy-on-merge.sh'"
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${AUTH_INSTANCE_ID}" \
+            --document-name AWS-RunShellScript \
+            --comment "nousergon-auth deploy ${GITHUB_SHA}" \
+            --parameters "commands=[\"${CMD_BODY}\"]" \
+            --query 'Command.CommandId' \
+            --output text)
+          echo "command_id=${CMD_ID}" >> "$GITHUB_OUTPUT"
+          echo "Sent SSM command: ${CMD_ID}"
+
+      - name: Wait for SSM command to finish
+        run: |
+          set -euo pipefail
+          CMD_ID="${{ steps.send.outputs.command_id }}"
+          INSTANCE="${AUTH_INSTANCE_ID}"
+          FINAL="InProgress"
+          for i in $(seq 1 60); do
+            FINAL=$(aws ssm get-command-invocation \
+              --instance-id "${INSTANCE}" \
+              --command-id "${CMD_ID}" \
+              --query 'Status' --output text 2>/dev/null || echo "Pending")
+            echo "[$i] SSM status: ${FINAL}"
+            case "${FINAL}" in
+              Success) exit 0 ;;
+              Failed|Cancelled|TimedOut) exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "SSM command still ${FINAL} after 15m" >&2
+          exit 1
+
+      - name: Fetch deploy output
+        if: always()
+        run: |
+          set +e
+          STATUS=$(aws ssm get-command-invocation \
+            --instance-id "${AUTH_INSTANCE_ID}" \
+            --command-id "${{ steps.send.outputs.command_id }}" \
+            --query '[Status,ResponseCode]' --output text)
+          echo "Status: ${STATUS}"
+          echo "── stdout ──"
+          aws ssm get-command-invocation \
+            --instance-id "${AUTH_INSTANCE_ID}" \
+            --command-id "${{ steps.send.outputs.command_id }}" \
+            --query 'StandardOutputContent' --output text
+          echo "── stderr ──"
+          aws ssm get-command-invocation \
+            --instance-id "${AUTH_INSTANCE_ID}" \
+            --command-id "${{ steps.send.outputs.command_id }}" \
+            --query 'StandardErrorContent' --output text
+          echo "${STATUS}" | grep -q "^Success" || exit 1

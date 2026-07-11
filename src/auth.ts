@@ -1,0 +1,85 @@
+// Shared, self-hosted identity service for Nous Ergon products (Metron, Vires, and
+// future products). Owns identity ONLY — id, email, session. Never a tenant/workspace
+// concept: each product keeps its own local tenant table, mapped to this service's
+// stable `user.id` via an `identity_user_id` column on its own User model. This is the
+// standard shape for a shared IdP (how Auth0/Clerk/etc. work) — see the shared plan
+// doc for the reasoning against having this service own per-product tenancy.
+//
+// better-auth's magic-link `verify` endpoint sets the session cookie AND redirects to
+// the caller-supplied `callbackURL` itself (see node_modules/better-auth/dist/plugins
+// /magic-link/index.mjs) — so no product needs its own "/auth/verify" page. Each
+// product's sign-in call passes its own post-login callbackURL, e.g.
+// `https://vires.nousergon.ai/app` or `https://metron.nousergon.ai/dash`.
+
+import Database from "better-sqlite3";
+import { betterAuth } from "better-auth";
+import { magicLink } from "better-auth/plugins";
+import { jwt } from "better-auth/plugins/jwt";
+import { inviteGate } from "./invite-gate.js";
+import { magicLinkEmail, type Product } from "./magic-link-templates.js";
+import { sendEmail } from "./email.js";
+
+// Local SQLite file. Seeded from Metron's original auth.sqlite at cutover (see the
+// shared plan doc, Part 0) so Brian's existing account carries over byte-for-byte.
+// Postgres later is a drop-in dialect swap if load ever justifies it — not needed for
+// a 1-2-user fleet.
+const db = new Database(process.env.AUTH_DATABASE_URL ?? "./auth.sqlite");
+
+function trustedOrigins(): string[] {
+  return (process.env.AUTH_TRUSTED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export const auth = betterAuth({
+  database: db,
+  baseURL: process.env.AUTH_BASE_URL ?? "http://localhost:4100",
+  secret: process.env.BETTER_AUTH_SECRET,
+  trustedOrigins: trustedOrigins(),
+  advanced: {
+    // Session cookie set on the parent domain so it's readable by every
+    // *.nousergon.ai product host — the mechanism the JWT/JWKS plugin below exists
+    // specifically to complement for non-Node (Python/FastAPI) backends, which can't
+    // read this cookie directly and instead verify a short-lived JWT minted off it.
+    crossSubDomainCookies: {
+      enabled: true,
+      domain: process.env.AUTH_COOKIE_DOMAIN ?? ".nousergon.ai",
+    },
+  },
+  // No databaseHooks.user.create hook here — deliberately. Tenant/workspace minting
+  // is each product's own responsibility now (JIT-provisioned on first authenticated
+  // request, matched by this service's stable user.id), not this service's.
+  plugins: [
+    // Listed first: registers a hooks.before on /sign-in/magic-link that gates new
+    // signups behind a per-product invite code. Returning users (existing `user` row)
+    // always pass. See invite-gate.ts for the full contract.
+    inviteGate(),
+    magicLink({
+      sendMagicLink: async ({ email, url, metadata }) => {
+        const product = (metadata?.product as Product | undefined) ?? "metron";
+        await sendEmail({
+          to: email,
+          subject: `Sign in to ${product === "vires" ? "Vires" : "Metron"}`,
+          html: magicLinkEmail(url, product),
+          text: `Sign in: ${url}`,
+        });
+      },
+    }),
+    // Issues short-lived, verifiable JWTs (GET /token) + exposes a JWKS endpoint
+    // (GET /jwks) so each product's own backend (Python/FastAPI for both Metron and
+    // Vires) can verify a caller's identity locally — cached JWKS, periodic refresh —
+    // without a synchronous round-trip to this service on every request.
+    jwt({
+      jwt: {
+        issuer: process.env.AUTH_BASE_URL ?? "http://localhost:4100",
+        expirationTime: "15m",
+        // Keep the token payload minimal and stable: `sub` (this service's user.id)
+        // is the only thing downstream products key off of. No product-specific
+        // claims belong here — see the module docstring on why tenancy stays local
+        // to each product.
+        definePayload: ({ user }) => ({ sub: user.id, email: user.email }),
+      },
+    }),
+  ],
+});

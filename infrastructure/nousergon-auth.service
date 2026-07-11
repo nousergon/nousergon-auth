@@ -1,0 +1,15 @@
+[Unit]
+Description=nousergon-auth — shared identity service (Better Auth)
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/nousergon-auth
+EnvironmentFile=/home/ec2-user/nousergon-auth/.env
+ExecStart=/usr/bin/node dist/server.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
