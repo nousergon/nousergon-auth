@@ -37,6 +37,15 @@ export const auth = betterAuth({
   baseURL: process.env.AUTH_BASE_URL ?? "http://localhost:4100",
   secret: process.env.BETTER_AUTH_SECRET,
   trustedOrigins: trustedOrigins(),
+  // Explicitly enabled — better-auth's own default gates on NODE_ENV=production,
+  // which nothing on the box sets, so the limiter was silently OFF in prod until
+  // 2026-07-11 (nousergon-auth#4). Global ceiling here; the magic-link plugin
+  // additionally registers its own tighter per-path rule (5 requests / 60s per IP).
+  rateLimit: {
+    enabled: true,
+    window: 10,
+    max: 100,
+  },
   advanced: {
     // Session cookie set on the parent domain so it's readable by every
     // *.nousergon.ai product host — the mechanism the JWT/JWKS plugin below exists
@@ -45,6 +54,15 @@ export const auth = betterAuth({
     crossSubDomainCookies: {
       enabled: true,
       domain: process.env.AUTH_COOKIE_DOMAIN ?? ".nousergon.ai",
+    },
+    // Rate-limit keys need the TRUE client IP: this origin sits behind Cloudflare
+    // (orange-cloud) → nginx, so the socket peer is always the edge/proxy.
+    // cf-connecting-ip is set by Cloudflare itself; x-forwarded-for is the
+    // fallback for any non-CF path. NOTE: a direct-to-origin caller could spoof
+    // these headers — locking the origin to Cloudflare IP ranges is tracked as
+    // follow-up hardening on nousergon-auth#4.
+    ipAddress: {
+      ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
     },
   },
   // No databaseHooks.user.create hook here — deliberately. Tenant/workspace minting
