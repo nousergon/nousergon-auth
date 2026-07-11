@@ -15,7 +15,11 @@
 //   - An email that already has an account (a `user` row exists) always passes — this
 //     gate only blocks *new* signups, never re-entry for people already inside.
 //   - A brand-new email must have an `allowedEmail` row for the REQUESTED PRODUCT
-//     (the request's `metadata.product` field, "metron" | "vires"). No row -> 403.
+//     (the request's `metadata.product` field, "metron" | "vires").
+//   - UNIFORM RESPONSES (nousergon-auth#4): an unapproved address receives the same
+//     success shape as an approved one (and no email) — the endpoint never discloses
+//     whether an address is invited or registered. Rejections are recorded in the
+//     server log, which is where an admin spots an invitee typo.
 //
 // Unlike an invite code there is nothing to consume: the unique index on user.email
 // already guarantees one account per address, so `usedAt`/`usedByEmail` are pure
@@ -33,11 +37,6 @@ import { APIError } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import type { BetterAuthPlugin } from "better-auth";
 import type { Product } from "./magic-link-templates.js";
-
-export const ALLOWLIST_GATE_MESSAGES = {
-  NOT_INVITED:
-    "That email hasn't been invited yet — this product is in private beta.",
-} as const;
 
 export function allowlistGateEnabled(): boolean {
   return process.env.ALLOWLIST_GATE_ENABLED !== "false";
@@ -72,9 +71,10 @@ export function allowlistGate(): BetterAuthPlugin {
             // .toLowerCase() internally and would throw an unhandled 500).
             if (typeof email !== "string" || !email) return;
 
-            const existingUser = await ctx.context.internalAdapter.findUserByEmail(email);
-            if (existingUser) return; // returning user: never gated, only new signups are
-
+            // Contract validation FIRST, before any account lookup: a missing
+            // product must 400 identically for known and unknown emails — checking
+            // it after the existing-user early-return made the 400 itself an
+            // account-enumeration oracle (nousergon-auth#4).
             const metadata = (ctx.body as { metadata?: Record<string, unknown> } | undefined)
               ?.metadata;
             const product =
@@ -85,6 +85,9 @@ export function allowlistGate(): BetterAuthPlugin {
               });
             }
 
+            const existingUser = await ctx.context.internalAdapter.findUserByEmail(email);
+            if (existingUser) return; // returning user: never gated, only new signups are
+
             const approvals = await ctx.context.adapter.findMany<{ id: string }>({
               model: "allowedEmail",
               where: [
@@ -94,7 +97,18 @@ export function allowlistGate(): BetterAuthPlugin {
               limit: 1,
             });
             if (approvals.length < 1) {
-              throw new APIError("FORBIDDEN", { message: ALLOWLIST_GATE_MESSAGES.NOT_INVITED });
+              // Uniform response (nousergon-auth#4): an unapproved address gets the
+              // SAME success shape as an approved one and no email is sent, so the
+              // endpoint doesn't disclose which addresses are invited/registered.
+              // Deliberate swallow of the rejection at the HTTP layer — the
+              // recording surface is the server-side log line below (journalctl),
+              // which is also how an admin spots an invitee typo or a probe.
+              // warn, not info: better-auth's default log level is "warn", and a
+              // gated signup attempt is genuinely notice-worthy.
+              ctx.context.logger.warn(
+                `allowlist-gate: suppressed magic-link for unapproved address (product=${product})`,
+              );
+              return { status: true };
             }
 
             // Audit mark, best-effort by design: the approval row is a record, not a
