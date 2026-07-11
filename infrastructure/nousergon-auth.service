@@ -7,7 +7,11 @@ Type=simple
 User=ec2-user
 WorkingDirectory=/home/ec2-user/nousergon-auth
 EnvironmentFile=/home/ec2-user/nousergon-auth/.env
-ExecStart=/usr/bin/node dist/server.js
+# node-22 explicitly, NOT the box-default /usr/bin/node (still 18/EOL until
+# nous-ergon-ops#17): jose's key generation needs global WebCrypto (Node >= 19)
+# — /jwks 500s under Node 18. nodejs22 is installed side-by-side; the default
+# alternative is left untouched so other services are unaffected.
+ExecStart=/usr/bin/node-22 dist/server.js
 Restart=on-failure
 RestartSec=3
 
