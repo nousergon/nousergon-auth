@@ -1,7 +1,7 @@
 # nousergon-auth
 
 Shared, self-hosted identity service for Nous Ergon products (Metron, Vires, and
-future products). Better Auth (magic-link + JWT/JWKS + invite-gate), running as its
+future products). Better Auth (magic-link + JWT/JWKS + allowlist-gate), running as its
 own standalone Node process at `auth.nousergon.ai` — not embedded in any one product.
 
 **Owns identity only** — id, email, session. Never a tenant/workspace concept: each
@@ -24,7 +24,7 @@ products hold personal financial/health data.
 - **Non-Node backends** (Vires's FastAPI, Metron's own FastAPI backend): verify a
   short-lived JWT (obtained client-side via `GET /api/auth/token`) against this
   service's JWKS (`GET /api/auth/jwks`) — cached locally, no per-request round trip.
-- **Sign-in**: `authClient.signIn.magicLink({ email, callbackURL: "<product's own post-login URL>", metadata: { inviteCode, product: "metron" | "vires" } })`. The emailed link points directly at this service's own verify endpoint, which sets the session cookie and redirects to `callbackURL` itself — no product needs its own `/auth/verify` page.
+- **Sign-in**: `authClient.signIn.magicLink({ email, callbackURL: "<product's own post-login URL>", metadata: { product: "metron" | "vires" } })`. The emailed link points directly at this service's own verify endpoint, which sets the session cookie and redirects to `callbackURL` itself — no product needs its own `/auth/verify` page.
 
 ## Local development
 
@@ -34,14 +34,20 @@ cp .env.example .env   # fill in RESEND_API_KEY, BETTER_AUTH_SECRET, etc.
 npm run dev
 ```
 
-## Invite codes
+## Signup allowlist
 
-No admin UI yet (tracked as a fast-follow). Seed directly:
+New signups are gated on a per-product admin email allowlist (an admin pre-approves a
+specific address — Brian's 2026-07-10 ruling on vires#93: allowlist over invite
+codes). Returning users are never gated. No admin UI yet (tracked as a fast-follow).
+Approve directly:
 
 ```
-sqlite3 auth.sqlite "INSERT INTO inviteCode (id, code, product, createdAt) \
-  VALUES (lower(hex(randomblob(16))), 'METRON-BETA-XXXX', 'metron', datetime('now'));"
+sqlite3 auth.sqlite "INSERT INTO allowedEmail (id, email, product, createdAt) \
+  VALUES (lower(hex(randomblob(16))), 'friend@example.com', 'metron', datetime('now'));"
 ```
+
+(The retired `inviteCode` table is dropped in a follow-up migration once the
+allowlist gate is verified live.)
 
 ## Deploy
 

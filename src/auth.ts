@@ -15,7 +15,7 @@ import Database from "better-sqlite3";
 import { betterAuth } from "better-auth";
 import { magicLink } from "better-auth/plugins";
 import { jwt } from "better-auth/plugins/jwt";
-import { inviteGate } from "./invite-gate.js";
+import { allowlistGate } from "./allowlist-gate.js";
 import { magicLinkEmail, type Product } from "./magic-link-templates.js";
 import { sendEmail } from "./email.js";
 
@@ -52,9 +52,11 @@ export const auth = betterAuth({
   // request, matched by this service's stable user.id), not this service's.
   plugins: [
     // Listed first: registers a hooks.before on /sign-in/magic-link that gates new
-    // signups behind a per-product invite code. Returning users (existing `user` row)
-    // always pass. See invite-gate.ts for the full contract.
-    inviteGate(),
+    // signups behind a per-product admin EMAIL ALLOWLIST (Brian's 2026-07-10 ruling
+    // on vires#93 — allowlist over invite codes; restored 2026-07-11 after the
+    // original gate silently adopted Metron's code model instead). Returning users
+    // (existing `user` row) always pass. See allowlist-gate.ts for the full contract.
+    allowlistGate(),
     magicLink({
       sendMagicLink: async ({ email, url, metadata }) => {
         const product = (metadata?.product as Product | undefined) ?? "metron";
