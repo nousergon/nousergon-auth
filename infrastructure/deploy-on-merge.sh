@@ -16,6 +16,12 @@ cd "$REPO"
 npm install --no-audit --no-fund --silent || { echo "npm install FAILED"; exit 1; }
 npm run build || { echo "build FAILED"; exit 1; }
 
+# Schema migration on EVERY deploy — idempotent (better-auth migrate only applies
+# missing tables/columns). In the pipeline, not a hand-run step: the 2026-07-10
+# hand-run migration silently never landed (SSM broke mid-session), which shipped a
+# service whose /jwks 500'd on a missing table.
+npm run migrate || { echo "schema migration FAILED"; exit 1; }
+
 # Hydrate secrets from SSM Parameter Store into .env — SSM is the durable source of
 # truth, .env is a generated cache refreshed every deploy, so a rebuilt/replaced box
 # self-heals. Only the marked block is rewritten; hand-set lines are preserved. Values
