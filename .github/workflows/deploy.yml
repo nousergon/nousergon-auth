@@ -2,6 +2,10 @@ name: Deploy nousergon-auth via SSM
 
 # Push to main (or manual) → assume the shared OIDC role → SSM to the dashboard EC2 →
 # pull this repo + rebuild + restart + health-check. Mirrors metron's deploy.yml.
+#
+# `deploy` needs: `test` (alpha-engine-config#2527) — typecheck + build must pass before
+# the SSM command fires, so a bad push to main cannot reach the live box. `test` mirrors
+# ci.yml's job so main is re-verified even if it landed via an admin-override push.
 
 on:
   push:
@@ -12,15 +16,34 @@ concurrency:
   group: nousergon-auth-deploy
   cancel-in-progress: false
 
-permissions:
-  id-token: write
-  contents: read
-
 jobs:
-  deploy:
-    name: Deploy nousergon-auth via SSM
+  test:
+    name: typecheck + build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+
+  deploy:
+    name: Deploy nousergon-auth via SSM
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+      contents: read
     env:
       # The dashboard EC2 (shared box) — set via: gh variable set AUTH_INSTANCE_ID.
       AUTH_INSTANCE_ID: ${{ vars.AUTH_INSTANCE_ID }}
