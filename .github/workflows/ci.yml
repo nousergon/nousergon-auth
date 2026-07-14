@@ -1,0 +1,36 @@
+# PR gate — typecheck + build run on every PR and push to main (alpha-engine-config#2527:
+# deploy.yml alone meant a bad push to main deployed live with zero verification). No test
+# suite exists yet (vitest is wired but there are no *.test.ts files) — typecheck + build is
+# the acceptable floor per the issue; a follow-up tracks adding real tests.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: typecheck + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
