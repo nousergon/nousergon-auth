@@ -1,7 +1,8 @@
-# PR gate — typecheck + build run on every PR and push to main (alpha-engine-config#2527:
-# deploy.yml alone meant a bad push to main deployed live with zero verification). No test
-# suite exists yet (vitest is wired but there are no *.test.ts files) — typecheck + build is
-# the acceptable floor per the issue; a follow-up tracks adding real tests.
+# PR gate — typecheck + build + test run on every PR and push to main
+# (alpha-engine-config#2527: deploy.yml alone meant a bad push to main deployed live with
+# zero verification; alpha-engine-config#2546: vitest suite added, wired in as a step here
+# rather than a separate job so the required check-context name ("typecheck + build") stays
+# stable — it's a required status check on main).
 name: CI
 
 on:
@@ -34,3 +35,5 @@ jobs:
         run: npm run typecheck
       - name: Build
         run: npm run build
+      - name: Test
+        run: npm test

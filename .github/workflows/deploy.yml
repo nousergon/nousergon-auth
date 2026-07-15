@@ -3,9 +3,9 @@ name: Deploy nousergon-auth via SSM
 # Push to main (or manual) → assume the shared OIDC role → SSM to the dashboard EC2 →
 # pull this repo + rebuild + restart + health-check. Mirrors metron's deploy.yml.
 #
-# `deploy` needs: `test` (alpha-engine-config#2527) — typecheck + build must pass before
-# the SSM command fires, so a bad push to main cannot reach the live box. `test` mirrors
-# ci.yml's job so main is re-verified even if it landed via an admin-override push.
+# `deploy` needs: `test` (alpha-engine-config#2527) — typecheck + build + vitest must pass
+# before the SSM command fires, so a bad push to main cannot reach the live box. `test`
+# mirrors ci.yml's job so main is re-verified even if it landed via an admin-override push.
 
 on:
   push:
@@ -35,6 +35,8 @@ jobs:
         run: npm run typecheck
       - name: Build
         run: npm run build
+      - name: Test
+        run: npm test
 
   deploy:
     name: Deploy nousergon-auth via SSM
