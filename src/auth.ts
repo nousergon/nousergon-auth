@@ -19,12 +19,6 @@ import { allowlistGate } from "./allowlist-gate.js";
 import { magicLinkEmail, type Product } from "./magic-link-templates.js";
 import { sendEmail } from "./email.js";
 
-// Local SQLite file. Seeded from Metron's original auth.sqlite at cutover (see the
-// shared plan doc, Part 0) so Brian's existing account carries over byte-for-byte.
-// Postgres later is a drop-in dialect swap if load ever justifies it — not needed for
-// a 1-2-user fleet.
-const db = new Database(process.env.AUTH_DATABASE_URL ?? "./auth.sqlite");
-
 function trustedOrigins(): string[] {
   return (process.env.AUTH_TRUSTED_ORIGINS ?? "")
     .split(",")
@@ -32,74 +26,88 @@ function trustedOrigins(): string[] {
     .filter(Boolean);
 }
 
-export const auth = betterAuth({
-  database: db,
-  baseURL: process.env.AUTH_BASE_URL ?? "http://localhost:4100",
-  secret: process.env.BETTER_AUTH_SECRET,
-  trustedOrigins: trustedOrigins(),
-  // Explicitly enabled — better-auth's own default gates on NODE_ENV=production,
-  // which nothing on the box sets, so the limiter was silently OFF in prod until
-  // 2026-07-11 (nousergon-auth#4). Global ceiling here; the magic-link plugin
-  // additionally registers its own tighter per-path rule (5 requests / 60s per IP).
-  rateLimit: {
-    enabled: true,
-    window: 10,
-    max: 100,
-  },
-  advanced: {
-    // Session cookie set on the parent domain so it's readable by every
-    // *.nousergon.ai product host — the mechanism the JWT/JWKS plugin below exists
-    // specifically to complement for non-Node (Python/FastAPI) backends, which can't
-    // read this cookie directly and instead verify a short-lived JWT minted off it.
-    crossSubDomainCookies: {
+// Factory, not just a module-level singleton, so tests can construct an isolated
+// instance pointed at a throwaway sqlite file (via `databasePath`) instead of sharing
+// the process-wide `./auth.sqlite` / AUTH_DATABASE_URL target. Config/plugin wiring is
+// otherwise identical to the runtime singleton below.
+export function createAuth(options: { databasePath?: string } = {}) {
+  const db = new Database(options.databasePath ?? process.env.AUTH_DATABASE_URL ?? "./auth.sqlite");
+
+  return betterAuth({
+    database: db,
+    baseURL: process.env.AUTH_BASE_URL ?? "http://localhost:4100",
+    secret: process.env.BETTER_AUTH_SECRET,
+    trustedOrigins: trustedOrigins(),
+    // Explicitly enabled — better-auth's own default gates on NODE_ENV=production,
+    // which nothing on the box sets, so the limiter was silently OFF in prod until
+    // 2026-07-11 (nousergon-auth#4). Global ceiling here; the magic-link plugin
+    // additionally registers its own tighter per-path rule (5 requests / 60s per IP).
+    rateLimit: {
       enabled: true,
-      domain: process.env.AUTH_COOKIE_DOMAIN ?? ".nousergon.ai",
+      window: 10,
+      max: 100,
     },
-    // Rate-limit keys need the TRUE client IP: this origin sits behind Cloudflare
-    // (orange-cloud) → nginx, so the socket peer is always the edge/proxy.
-    // cf-connecting-ip is set by Cloudflare itself; x-forwarded-for is the
-    // fallback for any non-CF path. NOTE: a direct-to-origin caller could spoof
-    // these headers — locking the origin to Cloudflare IP ranges is tracked as
-    // follow-up hardening on nousergon-auth#4.
-    ipAddress: {
-      ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
+    advanced: {
+      // Session cookie set on the parent domain so it's readable by every
+      // *.nousergon.ai product host — the mechanism the JWT/JWKS plugin below exists
+      // specifically to complement for non-Node (Python/FastAPI) backends, which can't
+      // read this cookie directly and instead verify a short-lived JWT minted off it.
+      crossSubDomainCookies: {
+        enabled: true,
+        domain: process.env.AUTH_COOKIE_DOMAIN ?? ".nousergon.ai",
+      },
+      // Rate-limit keys need the TRUE client IP: this origin sits behind Cloudflare
+      // (orange-cloud) → nginx, so the socket peer is always the edge/proxy.
+      // cf-connecting-ip is set by Cloudflare itself; x-forwarded-for is the
+      // fallback for any non-CF path. NOTE: a direct-to-origin caller could spoof
+      // these headers — locking the origin to Cloudflare IP ranges is tracked as
+      // follow-up hardening on nousergon-auth#4.
+      ipAddress: {
+        ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
+      },
     },
-  },
-  // No databaseHooks.user.create hook here — deliberately. Tenant/workspace minting
-  // is each product's own responsibility now (JIT-provisioned on first authenticated
-  // request, matched by this service's stable user.id), not this service's.
-  plugins: [
-    // Listed first: registers a hooks.before on /sign-in/magic-link that gates new
-    // signups behind a per-product admin EMAIL ALLOWLIST (Brian's 2026-07-10 ruling
-    // on vires#93 — allowlist over invite codes; restored 2026-07-11 after the
-    // original gate silently adopted Metron's code model instead). Returning users
-    // (existing `user` row) always pass. See allowlist-gate.ts for the full contract.
-    allowlistGate(),
-    magicLink({
-      sendMagicLink: async ({ email, url, metadata }) => {
-        const product = (metadata?.product as Product | undefined) ?? "metron";
-        await sendEmail({
-          to: email,
-          subject: `Sign in to ${product === "vires" ? "Vires" : "Metron"}`,
-          html: magicLinkEmail(url, product),
-          text: `Sign in: ${url}`,
-        });
-      },
-    }),
-    // Issues short-lived, verifiable JWTs (GET /token) + exposes a JWKS endpoint
-    // (GET /jwks) so each product's own backend (Python/FastAPI for both Metron and
-    // Vires) can verify a caller's identity locally — cached JWKS, periodic refresh —
-    // without a synchronous round-trip to this service on every request.
-    jwt({
-      jwt: {
-        issuer: process.env.AUTH_BASE_URL ?? "http://localhost:4100",
-        expirationTime: "15m",
-        // Keep the token payload minimal and stable: `sub` (this service's user.id)
-        // is the only thing downstream products key off of. No product-specific
-        // claims belong here — see the module docstring on why tenancy stays local
-        // to each product.
-        definePayload: ({ user }) => ({ sub: user.id, email: user.email }),
-      },
-    }),
-  ],
-});
+    // No databaseHooks.user.create hook here — deliberately. Tenant/workspace minting
+    // is each product's own responsibility now (JIT-provisioned on first authenticated
+    // request, matched by this service's stable user.id), not this service's.
+    plugins: [
+      // Listed first: registers a hooks.before on /sign-in/magic-link that gates new
+      // signups behind a per-product admin EMAIL ALLOWLIST (Brian's 2026-07-10 ruling
+      // on vires#93 — allowlist over invite codes; restored 2026-07-11 after the
+      // original gate silently adopted Metron's code model instead). Returning users
+      // (existing `user` row) always pass. See allowlist-gate.ts for the full contract.
+      allowlistGate(),
+      magicLink({
+        sendMagicLink: async ({ email, url, metadata }) => {
+          const product = (metadata?.product as Product | undefined) ?? "metron";
+          await sendEmail({
+            to: email,
+            subject: `Sign in to ${product === "vires" ? "Vires" : "Metron"}`,
+            html: magicLinkEmail(url, product),
+            text: `Sign in: ${url}`,
+          });
+        },
+      }),
+      // Issues short-lived, verifiable JWTs (GET /token) + exposes a JWKS endpoint
+      // (GET /jwks) so each product's own backend (Python/FastAPI for both Metron and
+      // Vires) can verify a caller's identity locally — cached JWKS, periodic refresh —
+      // without a synchronous round-trip to this service on every request.
+      jwt({
+        jwt: {
+          issuer: process.env.AUTH_BASE_URL ?? "http://localhost:4100",
+          expirationTime: "15m",
+          // Keep the token payload minimal and stable: `sub` (this service's user.id)
+          // is the only thing downstream products key off of. No product-specific
+          // claims belong here — see the module docstring on why tenancy stays local
+          // to each product.
+          definePayload: ({ user }) => ({ sub: user.id, email: user.email }),
+        },
+      }),
+    ],
+  });
+}
+
+// Local SQLite file. Seeded from Metron's original auth.sqlite at cutover (see the
+// shared plan doc, Part 0) so Brian's existing account carries over byte-for-byte.
+// Postgres later is a drop-in dialect swap if load ever justifies it — not needed for
+// a 1-2-user fleet.
+export const auth = createAuth();
