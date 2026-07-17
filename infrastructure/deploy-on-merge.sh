@@ -1,8 +1,9 @@
 #!/bin/bash
-# deploy-on-merge.sh — refresh deps, rebuild, hydrate SSM secrets, install/update the
-# systemd unit + nginx fragment if they drifted, restart, health-check. Invoked via SSM
-# from .github/workflows/deploy.yml AFTER the caller has already pulled this repo to
-# its target ref. Mirrors metron/infrastructure/deploy-on-merge.sh's conventions.
+# deploy-on-merge.sh — refresh deps, rebuild, hydrate SSM-sourced config (secrets AND
+# the trusted-origins allowlist), install/update the systemd unit + nginx fragment if
+# they drifted, restart, health-check. Invoked via SSM from .github/workflows/deploy.yml
+# AFTER the caller has already pulled this repo to its target ref. Mirrors
+# metron/infrastructure/deploy-on-merge.sh's conventions.
 #
 # Runs as ec2-user (owns node_modules/dist); sudo only for systemctl/nginx reload
 # (ec2-user has passwordless sudo on the box). Exits non-zero on a failed build or
@@ -38,19 +39,28 @@ npm run build || { echo "build FAILED"; exit 1; }
 # service whose /jwks 500'd on a missing table.
 npm run migrate || { echo "schema migration FAILED"; exit 1; }
 
-# Hydrate secrets from SSM Parameter Store into .env — SSM is the durable source of
+# Hydrate config from SSM Parameter Store into .env — SSM is the durable source of
 # truth, .env is a generated cache refreshed every deploy, so a rebuilt/replaced box
 # self-heals. Only the marked block is rewritten; hand-set lines are preserved. Values
 # are written straight to the file and NEVER echoed (they'd leak into the GHA log).
+# AUTH_TRUSTED_ORIGINS is included here even though it isn't a secret (plain String
+# SSM parameter, not SecureString) — a hand-edited .env silently drifted from the
+# intended allowlist in production (missing metron.nousergon.ai), which silently
+# CORS-blocked Metron's client-side session check while the server-side fetch kept
+# working, so the site showed "Sign in" for an already-authenticated user. Hydrating
+# this value from SSM every deploy means a rebuilt/replaced box self-heals instead of
+# drifting again. --with-decryption is a documented no-op on a plain String parameter
+# (nothing to decrypt), so it's safe to reuse unmodified for a non-secret entry.
 ENVF="$REPO/.env"
-echo "=== hydrating SSM secrets → .env ==="
+echo "=== hydrating SSM config → .env ==="
 touch "$ENVF"
 BLOCK=$(mktemp)
 {
   echo "# >>> ssm-hydrated (managed by deploy-on-merge.sh — do not edit) >>>"
   for pair in \
     "BETTER_AUTH_SECRET:/nousergon-auth/better_auth_secret" \
-    "RESEND_API_KEY:/nousergon-auth/resend_api_key"; do
+    "RESEND_API_KEY:/nousergon-auth/resend_api_key" \
+    "AUTH_TRUSTED_ORIGINS:/nousergon-auth/auth_trusted_origins"; do
     var=${pair%%:*}; path=${pair#*:}
     val=$(aws ssm get-parameter --region us-east-1 --name "$path" --with-decryption --query Parameter.Value --output text 2>/dev/null)
     [ -n "$val" ] && [ "$val" != "None" ] && printf '%s=%s\n' "$var" "$val"
