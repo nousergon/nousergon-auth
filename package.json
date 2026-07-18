@@ -15,7 +15,7 @@
   "dependencies": {
     "better-auth": "^1.6.15",
     "better-sqlite3": "^12.10.0",
-    "resend": "^4.0.1"
+    "resend": "^5.0.0"
   },
   "devDependencies": {
     "@better-auth/cli": "^1.5.0-beta.13",
