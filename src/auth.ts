@@ -79,11 +79,22 @@ export function createAuth(options: { databasePath?: string } = {}) {
       magicLink({
         sendMagicLink: async ({ email, url, metadata }) => {
           const product = (metadata?.product as Product | undefined) ?? "metron";
+          // The email links to OUR confirm interstitial, not `url` (the verify
+          // endpoint) directly — see confirm-page.ts for why: a bare GET link
+          // atomically and irreversibly consumes the one-time token, which mail
+          // clients' own link-safety prefetching silently does before the human's
+          // real click lands.
+          const confirmUrl = new URL(
+            "/confirm",
+            process.env.AUTH_BASE_URL ?? "http://localhost:4100",
+          );
+          confirmUrl.searchParams.set("verify", url);
+          confirmUrl.searchParams.set("product", product);
           await sendEmail({
             to: email,
             subject: `Sign in to ${product === "vires" ? "Vires" : "Metron"}`,
-            html: magicLinkEmail(url, product),
-            text: `Sign in: ${url}`,
+            html: magicLinkEmail(confirmUrl.toString(), product),
+            text: `Sign in: ${confirmUrl.toString()}`,
           });
         },
       }),

@@ -13,6 +13,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { auth } from "./auth.js";
 import { toNodeHandler } from "better-auth/node";
+import { renderConfirmPage } from "./confirm-page.js";
+import type { Product } from "./magic-link-templates.js";
 
 const PORT = Number(process.env.PORT ?? 4100);
 
@@ -25,6 +27,27 @@ export function allowedOrigins(): Set<string> {
   );
 }
 
+// Only ever forward the confirm page's button to OUR OWN verify endpoint — without
+// this, `/confirm?verify=<attacker-url>` would be an open redirect (the page would
+// legitimately say "Continue to Vires" while sending the click somewhere else
+// entirely). No cookie-leak risk either way (browsers scope cookie attachment to the
+// request's target origin, not the calling page's), but the phishing/social-engineering
+// angle alone is worth closing off.
+function validatedVerifyUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  const authOrigin = new URL(process.env.AUTH_BASE_URL ?? "http://localhost:4100").origin;
+  if (parsed.origin !== authOrigin || parsed.pathname !== "/api/auth/magic-link/verify") {
+    return null;
+  }
+  return raw;
+}
+
 // Exported so tests can build a request listener against an injected `auth` instance
 // (e.g. one wired to a throwaway sqlite file) without binding a real network port.
 export function createRequestListener(
@@ -35,6 +58,20 @@ export function createRequestListener(
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("ok");
+      return;
+    }
+    if (req.method === "GET" && req.url?.startsWith("/confirm")) {
+      const parsed = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+      const verifyUrl = validatedVerifyUrl(parsed.searchParams.get("verify"));
+      const productParam = parsed.searchParams.get("product");
+      const product: Product = productParam === "vires" ? "vires" : "metron";
+      if (!verifyUrl) {
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Missing or invalid sign-in link.");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(renderConfirmPage(verifyUrl, product));
       return;
     }
     const origin = req.headers.origin;
