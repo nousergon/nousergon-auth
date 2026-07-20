@@ -11,22 +11,36 @@
 //
 // Standard mitigation for this exact GET-triggers-a-state-change problem (used by
 // Slack/Linear/Notion et al. for the same reason): the link opens this page, which
-// does NOT touch the verify endpoint on load — only an explicit user click does, via
-// a script-initiated fetch. Prefetchers/scanners fetch inert HTML; they don't execute
-// JS button clicks.
+// does NOT touch the verify endpoint on load — only an explicit user click does.
+//
+// That click is a PLAIN NAVIGATION (a real <a href>), not a script-initiated fetch()
+// — deliberately. better-auth's verify endpoint 302s to `callbackURL` on a different
+// origin (e.g. vires.nousergon.ai from auth.nousergon.ai), and fetch()'s CORS
+// enforcement applies to that redirect hop even under `redirect:'follow'`; the
+// product's origin has no reason to send CORS headers permitting the auth service to
+// read its response, so a fetch-based version throws there (shipped and reverted the
+// same day — nousergon-auth#29's follow-up). A normal browser navigation follows a
+// cross-origin redirect exactly like clicking any other link always has, no CORS
+// involved — so this is both simpler and the actually-correct mechanism.
+// Prefetchers/scanners still can't trigger it: they fetch this page's own HTML, they
+// don't parse-and-follow links found inside it, so the verify URL sitting in an
+// unclicked <a href> is inert until a real click navigates to it.
 
 import { PRODUCT_META, type Product } from "./magic-link-templates.js";
 
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 export function renderConfirmPage(verifyUrl: string, product: Product): string {
   const { name, logoUrl } = PRODUCT_META[product];
-  // Handed to the client via a JSON <script> block, read with .textContent — never
-  // interpolated into HTML/JS source directly, so there's no attribute- or
-  // script-context escaping footgun for a value that's ultimately a query param.
-  // The `<` escape additionally guards against a literal `</script>` in the URL
-  // breaking out of the block.
-  const payload = JSON.stringify({ verifyUrl }).replace(/</g, "\\u003c");
+  const href = escapeHtmlAttr(verifyUrl);
   return `<!doctype html>
 <html>
 <head>
@@ -35,35 +49,16 @@ export function renderConfirmPage(verifyUrl: string, product: Product): string {
 <title>Sign in to ${name}</title>
 </head>
 <body style="margin:0;padding:0;background:#f4f4f5;font-family:${FONT};">
-  <script type="application/json" id="confirm-data">${payload}</script>
   <div style="max-width:420px;margin:64px auto;padding:32px;background:#fff;border:1px solid #e4e4e7;border-radius:12px;text-align:center;">
     <img src="${logoUrl}" width="40" height="40" alt="${name}" style="border-radius:8px;margin-bottom:16px;" />
     <h1 style="margin:0 0 8px 0;font-size:20px;font-weight:600;color:#18181b;">Sign in to ${name}</h1>
-    <p id="confirm-status" style="margin:0 0 20px 0;font-size:15px;line-height:22px;color:#52525b;">
+    <p style="margin:0 0 20px 0;font-size:15px;line-height:22px;color:#52525b;">
       Confirm it was you to finish signing in.
     </p>
-    <button id="confirm-btn" style="display:inline-block;padding:12px 28px;font-family:${FONT};font-size:15px;font-weight:600;color:#fff;background:#18181b;border:none;border-radius:8px;cursor:pointer;">
+    <a href="${href}" style="display:inline-block;padding:12px 28px;font-family:${FONT};font-size:15px;font-weight:600;color:#fff;background:#18181b;text-decoration:none;border-radius:8px;">
       Continue to ${name}
-    </button>
+    </a>
   </div>
-  <script>
-    (function () {
-      var data = JSON.parse(document.getElementById('confirm-data').textContent);
-      var btn = document.getElementById('confirm-btn');
-      var status = document.getElementById('confirm-status');
-      btn.addEventListener('click', function () {
-        btn.disabled = true;
-        btn.textContent = 'Signing in\\u2026';
-        fetch(data.verifyUrl, { credentials: 'include', redirect: 'follow' })
-          .then(function (res) { window.location.href = res.url; })
-          .catch(function () {
-            status.textContent = 'Something went wrong. Please try again or request a new link.';
-            btn.disabled = false;
-            btn.textContent = 'Continue to ${name}';
-          });
-      });
-    })();
-  </script>
 </body>
 </html>`;
 }
