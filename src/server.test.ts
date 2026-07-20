@@ -131,6 +131,82 @@ describe("CORS layer", () => {
   });
 });
 
+describe("GET /confirm", () => {
+  it("renders the confirm page for a verify URL matching AUTH_BASE_URL's own verify endpoint", async () => {
+    restoreEnv = withTestEnv({
+      BETTER_AUTH_SECRET: "test-only-secret-do-not-use-in-prod-0000",
+      AUTH_BASE_URL: "https://auth.nousergon.ai",
+    });
+    ctx = await createTestAuth();
+    server = createServer(createRequestListener(ctx.auth));
+    const { url } = await listen();
+
+    const verify = encodeURIComponent(
+      "https://auth.nousergon.ai/api/auth/magic-link/verify?token=abc",
+    );
+    const res = await fetch(`${url}/confirm?verify=${verify}&product=vires`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Sign in to Vires");
+    expect(html).toContain("https://auth.nousergon.ai/api/auth/magic-link/verify?token=abc");
+  });
+
+  it("defaults to metron branding when `product` is missing or unrecognized", async () => {
+    restoreEnv = withTestEnv({
+      BETTER_AUTH_SECRET: "test-only-secret-do-not-use-in-prod-0000",
+      AUTH_BASE_URL: "https://auth.nousergon.ai",
+    });
+    ctx = await createTestAuth();
+    server = createServer(createRequestListener(ctx.auth));
+    const { url } = await listen();
+
+    const verify = encodeURIComponent(
+      "https://auth.nousergon.ai/api/auth/magic-link/verify?token=abc",
+    );
+    const res = await fetch(`${url}/confirm?verify=${verify}`);
+    expect(await res.text()).toContain("Sign in to Metron");
+  });
+
+  it("rejects a verify URL pointing at a different origin (open-redirect guard)", async () => {
+    restoreEnv = withTestEnv({
+      BETTER_AUTH_SECRET: "test-only-secret-do-not-use-in-prod-0000",
+      AUTH_BASE_URL: "https://auth.nousergon.ai",
+    });
+    ctx = await createTestAuth();
+    server = createServer(createRequestListener(ctx.auth));
+    const { url } = await listen();
+
+    const evil = encodeURIComponent("https://evil.example.com/phish?token=abc");
+    const res = await fetch(`${url}/confirm?verify=${evil}&product=vires`);
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a verify URL pointing at a different path on the same origin", async () => {
+    restoreEnv = withTestEnv({
+      BETTER_AUTH_SECRET: "test-only-secret-do-not-use-in-prod-0000",
+      AUTH_BASE_URL: "https://auth.nousergon.ai",
+    });
+    ctx = await createTestAuth();
+    server = createServer(createRequestListener(ctx.auth));
+    const { url } = await listen();
+
+    const wrongPath = encodeURIComponent("https://auth.nousergon.ai/api/auth/sign-out");
+    const res = await fetch(`${url}/confirm?verify=${wrongPath}&product=vires`);
+    expect(res.status).toBe(400);
+  });
+
+  it("400s when `verify` is missing entirely", async () => {
+    restoreEnv = withTestEnv({ BETTER_AUTH_SECRET: "test-only-secret-do-not-use-in-prod-0000" });
+    ctx = await createTestAuth();
+    server = createServer(createRequestListener(ctx.auth));
+    const { url } = await listen();
+
+    const res = await fetch(`${url}/confirm`);
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("non-health requests", () => {
   it("delegates to the better-auth handler (e.g. reaches the JWKS route)", async () => {
     restoreEnv = withTestEnv({

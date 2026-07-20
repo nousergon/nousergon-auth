@@ -6,7 +6,7 @@
 
 export type Product = "metron" | "vires";
 
-const PRODUCT_META: Record<Product, { name: string; logoUrl: string }> = {
+export const PRODUCT_META: Record<Product, { name: string; logoUrl: string }> = {
   metron: { name: "Metron", logoUrl: "https://metron.nousergon.ai/favicon-192.png" },
   vires: { name: "Vires", logoUrl: "https://vires.nousergon.ai/favicon-192.png" },
 };
