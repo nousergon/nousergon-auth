@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "better-auth": "^1.6.25",
-    "better-sqlite3": "^12.10.0",
+    "better-sqlite3": "^13.0.1",
     "resend": "^5.0.0"
   },
   "devDependencies": {
