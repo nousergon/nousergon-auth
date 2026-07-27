@@ -26,6 +26,8 @@
     "vitest": "^4.1.8"
   },
   "overrides": {
-    "prisma": "5.22.0"
+    "prisma": "5.22.0",
+    "drizzle-orm": "^0.45.2",
+    "lodash": "4.18.1"
   }
 }
