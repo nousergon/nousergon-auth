@@ -5,3 +5,4 @@ dist/
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+CLAUDE.md
