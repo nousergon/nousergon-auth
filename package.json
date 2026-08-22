@@ -13,7 +13,7 @@
     "migrate": "better-auth migrate --config src/auth.ts -y"
   },
   "dependencies": {
-    "better-auth": "^1.6.27",
+    "better-auth": "^1.7.1",
     "better-sqlite3": "^12.10.0",
     "resend": "^5.0.0"
   },
@@ -23,7 +23,7 @@
     "@types/node": "^25.9.5",
     "tsx": "^4.23.12",
     "typescript": "6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "prisma": "5.22.0",
