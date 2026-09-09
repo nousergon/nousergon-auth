@@ -4,6 +4,9 @@
   "private": true,
   "description": "Shared, self-hosted identity service (Better Auth) for Nous Ergon products — magic-link auth + JWT/JWKS verification, used by Metron and Vires. Owns identity only; each product keeps its own tenant/workspace concept.",
   "type": "module",
+  "engines": {
+    "node": ">=24.15.0"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",
