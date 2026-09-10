@@ -23,6 +23,11 @@ jobs:
     name: typecheck + build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The badge-publish step below writes `coverage.json` on the orphan
+    # `badges` branch through the contents API. Nothing else in this job
+    # writes, and the token is scoped no wider than that.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -37,3 +42,19 @@ jobs:
         run: npm run build
       - name: Test
         run: npm test
+
+      # repository-baseline-policy.md §5.1 — a badge whose value is written by
+      # a human is forbidden: it renders identically to a real one and becomes
+      # false the moment reality moves without anyone editing a file. This
+      # repo had no coverage measurement at all before this PR. The README
+      # badge now renders whatever this step last published, derived from the
+      # same coverage/coverage-summary.json the vitest.config.ts threshold
+      # gate reads.
+      #
+      # Pushes to main only: a pull-request run measures a tree that is not
+      # yet what a reader of the README is looking at.
+      - name: Publish coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/publish_coverage_badge.sh

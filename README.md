@@ -1,5 +1,9 @@
 # nousergon-auth
 
+[![CI](https://github.com/nousergon/nousergon-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/nousergon/nousergon-auth/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nousergon/nousergon-auth/badges/coverage.json)](https://github.com/nousergon/nousergon-auth/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/nousergon/nousergon-auth)](LICENSE)
+
 Shared, self-hosted identity service for Nous Ergon products (Metron, Vires, and
 future products). Better Auth (magic-link + JWT/JWKS + allowlist-gate), running as its
 own standalone Node process at `auth.nousergon.ai` — not embedded in any one product.
@@ -26,13 +30,26 @@ products hold personal financial/health data.
   service's JWKS (`GET /api/auth/jwks`) — cached locally, no per-request round trip.
 - **Sign-in**: `authClient.signIn.magicLink({ email, callbackURL: "<product's own post-login URL>", metadata: { product: "metron" | "vires" } })`. The emailed link points directly at this service's own verify endpoint, which sets the session cookie and redirects to `callbackURL` itself — no product needs its own `/auth/verify` page.
 
-## Local development
+## Development & testing
 
 ```
 npm install
 cp .env.example .env   # fill in RESEND_API_KEY, BETTER_AUTH_SECRET, etc.
-npm run dev
+npm run dev            # runs the service locally with tsx watch
 ```
+
+Run the suite (typecheck, build, and vitest with coverage) the same way CI does:
+
+```
+npm run typecheck
+npm run build
+npm test                # vitest run --coverage
+```
+
+`npm test` exits non-zero if coverage drops below the floor in `vitest.config.ts` — a
+ratchet, raised as coverage improves and never lowered to make a change pass. The
+README's coverage badge above renders whatever CI last measured on `main`, published by
+`scripts/publish_coverage_badge.sh`.
 
 ## Signup allowlist
 
@@ -55,3 +72,11 @@ Runs on the shared dashboard EC2 box (`i-09b539c844515d549`), port 4100, behind 
 own nginx fragment at `auth.nousergon.ai`. Push to `main` → GHA (OIDC) → SSM →
 `infrastructure/deploy-on-merge.sh` rebuilds + restarts + health-checks. See
 `infrastructure/` for the systemd unit and nginx config, tracked as source of truth.
+
+## Further documentation
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to propose a change, run the suite, and
+  what review to expect.
+- [`SECURITY.md`](SECURITY.md) — how to report a vulnerability and the response window.
+- `infrastructure/` — systemd unit, nginx config, and the deploy script, tracked as the
+  source of truth for the running service.
