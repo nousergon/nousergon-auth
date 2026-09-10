@@ -16,6 +16,10 @@ export default defineConfig({
       // whole repository.
       include: ["src/**/*.ts"],
       exclude: ["**/*.test.ts", "src/test/**"],
+      // C1: instrument every file `include` matches, not only the ones a test
+      // happened to import — otherwise a module nothing imports drops out of
+      // the denominator entirely rather than appearing at 0%.
+      all: true,
       // repository-baseline-policy.md §4.2 C2: the floor must exit non-zero
       // below it, not merely print (`vitest run --coverage` fails the process
       // when a threshold isn't met). Raised as coverage improves, never
