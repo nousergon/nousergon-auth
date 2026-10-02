@@ -1,7 +1,7 @@
 // Shared test helpers: build a fully-isolated better-auth instance backed by a
 // throwaway SQLite file (os.tmpdir(), never under the repo), migrated in-process via
 // better-auth's programmatic migration API (same machinery `npm run migrate` / the
-// @better-auth/cli uses under the hood — see node_modules/better-auth/dist/db/get-migration).
+// `auth` CLI (successor to @better-auth/cli) uses under the hood — see node_modules/better-auth/dist/db/get-migration).
 // No live credentials: BETTER_AUTH_SECRET is a fixed non-secret test string,
 // RESEND_API_KEY is deliberately left UNSET (src/email.ts throws loud if a magic-link
 // send is ever actually attempted — tests assert on the auth layer, never send real mail).
