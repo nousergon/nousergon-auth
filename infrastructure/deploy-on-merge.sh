@@ -54,6 +54,23 @@ npm run migrate || { echo "schema migration FAILED"; exit 1; }
 ENVF="$REPO/.env"
 echo "=== hydrating SSM config → .env ==="
 touch "$ENVF"
+# .env holds BETTER_AUTH_SECRET and RESEND_API_KEY, and every service on this
+# box runs as ec2-user — so at the umask default (0644: what `touch` creates, and
+# `sed -i` below preserves whatever mode the file already has) every co-tenant
+# can read them. 0600 costs nothing: systemd (pid 1) reads the EnvironmentFile
+# as root, and `npm run migrate` runs as the owner. Set on EVERY deploy, not only
+# on create, so a file born 0644 is corrected too — and BEFORE any secret is
+# appended below. The dashboard box's unit-secrets check (nous-ergon-ops
+# check_unit_secrets.py, run daily by ops-config-drift.service) fails any
+# credential-bearing EnvironmentFile more permissive than 0640; Metron's deploy
+# enforces the same contract for its env files (metron-ops-I275).
+mode=$(stat -c %a "$ENVF")
+if [ "$mode" != "600" ]; then
+  chmod 600 "$ENVF" || { echo "env file mode FAILED: $ENVF"; exit 1; }
+  echo "  $ENVF: mode $mode -> 600"
+else
+  echo "  $ENVF: mode 600"
+fi
 BLOCK=$(mktemp)
 {
   echo "# >>> ssm-hydrated (managed by deploy-on-merge.sh — do not edit) >>>"
