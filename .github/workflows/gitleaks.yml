@@ -1,0 +1,35 @@
+# Weekly full-history secret scan (alpha-engine-config-I3005).
+#
+# GitHub's native secret scanning matches its known provider-token formats on
+# push only. It does not catch internal-shaped secrets, and it cannot see
+# history committed before push protection existed. This caller runs the
+# fleet's shared, checksum-pinned gitleaks scan over the whole history: on
+# every push to main and weekly.
+#
+# BASELINE: one record, a verified non-secret (2026-10-24). A local run of the
+# same gitleaks version (8.30.1) over this repo's full history (55 commits)
+# found exactly one finding: `generic-api-key` at
+# src/magic-link-templates.test.ts:24, commit 6d6a37a7 (2026-07-15). The
+# matched value is the `token=` query parameter of the test fixture URL
+# "https://auth.example.com/verify?token=unique-marker-12345": an RFC 2606
+# example.com host, a literal marker string the test searches the rendered
+# email for, in a test file. It authenticates nothing anywhere. The record is
+# in .gitleaks-baseline.json, copied from a REDACTED report; nothing else is
+# baselined. Any other finding still fails the scan.
+
+name: Gitleaks scan
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * MON"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  gitleaks:
+    uses: nousergon/nousergon-lib/.github/workflows/gitleaks-scan.yml@51206172feb68a6b6908197e2d4348568b8af061 # main 2026-10-22
