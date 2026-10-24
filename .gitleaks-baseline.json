@@ -1,0 +1,23 @@
+[
+ {
+  "RuleID": "generic-api-key",
+  "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+  "StartLine": 24,
+  "EndLine": 24,
+  "StartColumn": 51,
+  "EndColumn": 76,
+  "Match": "token=REDACTED\"",
+  "Secret": "REDACTED",
+  "File": "src/magic-link-templates.test.ts",
+  "SymlinkFile": "",
+  "Commit": "6d6a37a7ff9e4eedf345309d121e12aa276a4c2b",
+  "Link": "https://github.com/nousergon/nousergon-auth/blob/6d6a37a7ff9e4eedf345309d121e12aa276a4c2b/src/magic-link-templates.test.ts#L24",
+  "Entropy": 3.826875,
+  "Author": "ne-groomer[bot]",
+  "Email": "300654814+ne-groomer[bot]@users.noreply.github.com",
+  "Date": "2026-07-15T03:02:15Z",
+  "Message": "test(nousergon-auth): add vitest suite, wire into CI gate (#22)\n\nZero test files existed despite vitest being wired (\"test\": \"vitest run\"\nalready declared) \u2014 this was the tracked remainder of the CI-gate work\n(alpha-engine-config-I2527/PR13), which shipped typecheck+build without\ntests. Adds real coverage for the service's core surfaces and blocks both\nPRs and pre-deploy on it passing.\n\n- src/server.ts, src/auth.ts: minimal refactor to expose test seams\n  (createRequestListener(authInstance), createAuth(options)) without\n  changing runtime behavior \u2014 `node dist/server.js` still binds a real\n  port via an import.meta.url entrypoint guard; the module-level `auth`\n  singleton is unchanged for production callers.\n- 31 tests across 5 files: /health + CORS (server.test.ts), betterAuth\n  config wiring + JWKS (auth.test.ts), the allowlist-gate route handler's\n  full contract \u2014 uniform responses, product-scoping, returning-user\n  bypass, validation ordering (allowlist-gate.test.ts), email.ts's\n  fail-loud contract, and the magic-link HTML template.\n- Hermetic: every test builds an isolated betterAuth instance against a\n  fresh SQLite file under os.tmpdir() (never under the repo), migrated\n  in-process via better-auth's own getMigrations()/runMigrations() \u2014\n  no real credentials anywhere (RESEND_API_KEY is left unset throughout;\n  BETTER_AUTH_SECRET is a fixed non-secret test string). Distinct\n  x-forwarded-for per request avoids cross-test collisions with the\n  magic-link plugin's own per-IP rate limit.\n- ci.yml / deploy.yml: `npm test` added as a step in the existing\n  \"typecheck + build\" job in both files \u2014 job/check-context name\n  unchanged (required status check on main), no branch-protection change\n  needed.\n- tsconfig.build.json + vitest.config.ts: keep *.test.ts out of the\n  shipped dist/ build while still typechecking them via `npm run\n  typecheck`.\n\nVerified the suite actually catches regressions: temporarily neutered the\nallowlist-gate's rejection branch locally, confirmed 2 tests went red,\nreverted.\n\nValidated locally (Node 20, matching CI): npm install && npm run\ntypecheck && npm run build && npm test all pass clean; also smoke-tested\nthe real dist/server.js entrypoint (GET /health -> 200 ok).\n\nCloses nousergon/alpha-engine-config#2546\n\nCo-authored-by: groom-bot <groom-bot@users.noreply.github.com>\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+  "Tags": [],
+  "Fingerprint": "6d6a37a7ff9e4eedf345309d121e12aa276a4c2b:src/magic-link-templates.test.ts:generic-api-key:24"
+ }
+]
