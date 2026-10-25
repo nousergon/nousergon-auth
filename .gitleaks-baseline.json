@@ -19,5 +19,26 @@
   "Message": "test(nousergon-auth): add vitest suite, wire into CI gate (#22)\n\nZero test files existed despite vitest being wired (\"test\": \"vitest run\"\nalready declared) \u2014 this was the tracked remainder of the CI-gate work\n(alpha-engine-config-I2527/PR13), which shipped typecheck+build without\ntests. Adds real coverage for the service's core surfaces and blocks both\nPRs and pre-deploy on it passing.\n\n- src/server.ts, src/auth.ts: minimal refactor to expose test seams\n  (createRequestListener(authInstance), createAuth(options)) without\n  changing runtime behavior \u2014 `node dist/server.js` still binds a real\n  port via an import.meta.url entrypoint guard; the module-level `auth`\n  singleton is unchanged for production callers.\n- 31 tests across 5 files: /health + CORS (server.test.ts), betterAuth\n  config wiring + JWKS (auth.test.ts), the allowlist-gate route handler's\n  full contract \u2014 uniform responses, product-scoping, returning-user\n  bypass, validation ordering (allowlist-gate.test.ts), email.ts's\n  fail-loud contract, and the magic-link HTML template.\n- Hermetic: every test builds an isolated betterAuth instance against a\n  fresh SQLite file under os.tmpdir() (never under the repo), migrated\n  in-process via better-auth's own getMigrations()/runMigrations() \u2014\n  no real credentials anywhere (RESEND_API_KEY is left unset throughout;\n  BETTER_AUTH_SECRET is a fixed non-secret test string). Distinct\n  x-forwarded-for per request avoids cross-test collisions with the\n  magic-link plugin's own per-IP rate limit.\n- ci.yml / deploy.yml: `npm test` added as a step in the existing\n  \"typecheck + build\" job in both files \u2014 job/check-context name\n  unchanged (required status check on main), no branch-protection change\n  needed.\n- tsconfig.build.json + vitest.config.ts: keep *.test.ts out of the\n  shipped dist/ build while still typechecking them via `npm run\n  typecheck`.\n\nVerified the suite actually catches regressions: temporarily neutered the\nallowlist-gate's rejection branch locally, confirmed 2 tests went red,\nreverted.\n\nValidated locally (Node 20, matching CI): npm install && npm run\ntypecheck && npm run build && npm test all pass clean; also smoke-tested\nthe real dist/server.js entrypoint (GET /health -> 200 ok).\n\nCloses nousergon/alpha-engine-config#2546\n\nCo-authored-by: groom-bot <groom-bot@users.noreply.github.com>\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
   "Tags": [],
   "Fingerprint": "6d6a37a7ff9e4eedf345309d121e12aa276a4c2b:src/magic-link-templates.test.ts:generic-api-key:24"
+ },
+ {
+  "RuleID": "generic-api-key",
+  "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+  "StartLine": 14,
+  "EndLine": 14,
+  "StartColumn": 37,
+  "EndColumn": 62,
+  "Match": "token=REDACTED\"",
+  "Secret": "REDACTED",
+  "File": ".github/workflows/gitleaks.yml",
+  "SymlinkFile": "",
+  "Commit": "e98d56b193c5b17924e700b160c2879ddd0218f3",
+  "Link": "https://github.com/nousergon/nousergon-auth/blob/e98d56b193c5b17924e700b160c2879ddd0218f3/.github/workflows/gitleaks.yml#L14",
+  "Entropy": 3.826875,
+  "Author": "Brian McMahon",
+  "Email": "brian@nousergon.ai",
+  "Date": "2026-10-24T14:26:12Z",
+  "Message": "ci(security): add the fleet gitleaks scan with a one-record baseline for a verified non-secret (#67)\n\nAdds the thin caller for nousergon-lib's shared full-history gitleaks scan\n(alpha-engine-config-I3005), on push to main and weekly, and baselines the\none existing finding.\n\nThe finding (gitleaks 8.30.1, 55 commits): generic-api-key at\nsrc/magic-link-templates.test.ts:24, commit 6d6a37a7. It is the `token=`\nparameter of the test fixture URL\nhttps://auth.example.com/verify?token=unique-marker-12345 (an RFC 2606 host,\na marker string the test looks for in the rendered email). Verified\nnon-secret 2026-10-24. The record is copied from a redacted report; nothing\nelse is baselined.\n\nClaude-Session: https://claude.ai/code/session_01Szwv3KVpJTagJ7ZUvBezVA\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+  "Tags": [],
+  "Fingerprint": "e98d56b193c5b17924e700b160c2879ddd0218f3:.github/workflows/gitleaks.yml:generic-api-key:14"
  }
 ]
