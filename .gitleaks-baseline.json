@@ -40,5 +40,26 @@
   "Message": "ci(security): add the fleet gitleaks scan with a one-record baseline for a verified non-secret (#67)\n\nAdds the thin caller for nousergon-lib's shared full-history gitleaks scan\n(alpha-engine-config-I3005), on push to main and weekly, and baselines the\none existing finding.\n\nThe finding (gitleaks 8.30.1, 55 commits): generic-api-key at\nsrc/magic-link-templates.test.ts:24, commit 6d6a37a7. It is the `token=`\nparameter of the test fixture URL\nhttps://auth.example.com/verify?token=unique-marker-12345 (an RFC 2606 host,\na marker string the test looks for in the rendered email). Verified\nnon-secret 2026-10-24. The record is copied from a redacted report; nothing\nelse is baselined.\n\nClaude-Session: https://claude.ai/code/session_01Szwv3KVpJTagJ7ZUvBezVA\n\nCo-authored-by: Claude <noreply@anthropic.com>",
   "Tags": [],
   "Fingerprint": "e98d56b193c5b17924e700b160c2879ddd0218f3:.github/workflows/gitleaks.yml:generic-api-key:14"
+ },
+ {
+  "RuleID": "generic-api-key",
+  "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+  "StartLine": 40,
+  "EndLine": 40,
+  "StartColumn": 501,
+  "EndColumn": 526,
+  "Match": "token=REDACTED ",
+  "Secret": "REDACTED",
+  "File": ".gitleaks-baseline.json",
+  "SymlinkFile": "",
+  "Commit": "8b17ff77917a5dd53847266222fd500f88fc3eaf",
+  "Link": "https://github.com/nousergon/nousergon-auth/blob/8b17ff77917a5dd53847266222fd500f88fc3eaf/.gitleaks-baseline.json#L40",
+  "Entropy": 3.826875,
+  "Author": "Brian McMahon",
+  "Email": "brian@nousergon.ai",
+  "Date": "2026-10-25T15:26:08Z",
+  "Message": "ci(security): baseline the quoted fixture in gitleaks.yml and stop quoting it (#69)\n\n#67 (e98d56b1) quoted the baselined test-fixture token in the workflow\nheader comment, so the full-history scan found the same verified\nnon-secret at a second location and main went red. Record exactly that\none redacted finding in .gitleaks-baseline.json and reword the comment\nso it no longer carries the value.\n\nRefs alpha-engine-config-I12633\n\nClaude-Session: https://claude.ai/code/session_01Xm7ZZeMqcWv2J12feLaeED\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+  "Tags": [],
+  "Fingerprint": "8b17ff77917a5dd53847266222fd500f88fc3eaf:.gitleaks-baseline.json:generic-api-key:40"
  }
 ]
