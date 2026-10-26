@@ -15,22 +15,59 @@ echo "=== nousergon-auth deploy $(date -u +%FT%TZ) — $(git -C "$REPO" rev-pars
 
 cd "$REPO"
 
-# Pin the WHOLE toolchain (install/build/migrate) to node-22, matching the unit's
-# runtime: native modules (better-sqlite3) must be built against the SAME ABI they
+# Pin the WHOLE toolchain (install/build/migrate) to node-${NODE_MAJOR}, matching the
+# unit's runtime: native modules (better-sqlite3) must be built against the SAME ABI they
 # run under — the first live deploy crash-looped on NODE_MODULE_VERSION 108 vs 127
-# because npm ran under the box-default Node 18 (EOL; box-wide swap is
-# nous-ergon-ops#17, after which this shim and the unit's node-22 pin both retire).
+# because npm ran under the box-default Node 18 (EOL; the box-wide swap is
+# alpha-engine-config-I6094, after which this shim and the unit's pin both retire).
 # A shim dir is needed because npm lifecycle scripts resolve `node` via PATH and
 # /usr/bin/node still points at node-18.
+#
+# NODE_MAJOR must equal the major in nousergon-auth.service's ExecStart (asserted just
+# below, and in src/deploy-node-runtime.test.ts). alpha-engine-config-I12116 moves the
+# runtime to 24 in two PRs: this one adds the side-by-side install, the default-node
+# assert and the ABI probe while still on 22 (a no-op on the current box); the second
+# flips NODE_MAJOR and ExecStart together. Rolling back is a revert of the second PR
+# alone — safe ONLY because the probe below stays and rebuilds for the older ABI.
+NODE_MAJOR=22
+UNIT_NODE=$(sed -n 's|^ExecStart=/usr/bin/node-\([0-9][0-9]*\) .*|\1|p' "$REPO/infrastructure/nousergon-auth.service")
+[ "$UNIT_NODE" = "$NODE_MAJOR" ] || { echo "runtime mismatch: deploy builds with node-${NODE_MAJOR} but the unit runs node-${UNIT_NODE:-?} — flip NODE_MAJOR and ExecStart together"; exit 1; }
+
+# Side-by-side install, idempotent, so a rebuilt/replaced box self-heals. The box-default
+# /usr/bin/node is asserted unchanged: other Node services on this box use it.
+DEFAULT_NODE=$(readlink -f /usr/bin/node)
+if [ ! -x "/usr/bin/node-${NODE_MAJOR}" ]; then
+  echo "installing nodejs${NODE_MAJOR} side-by-side"
+  sudo dnf install -y "nodejs${NODE_MAJOR}" "nodejs${NODE_MAJOR}-npm" || { echo "nodejs${NODE_MAJOR} install FAILED"; exit 1; }
+fi
+[ "$(readlink -f /usr/bin/node)" = "$DEFAULT_NODE" ] || { echo "nodejs${NODE_MAJOR} install moved /usr/bin/node off ${DEFAULT_NODE} — box default changed, investigate"; exit 1; }
+
 NODE_SHIM=$(mktemp -d)
 trap 'rm -rf "$NODE_SHIM"' EXIT
-ln -sf /usr/bin/node-22 "$NODE_SHIM/node"
-ln -sf /usr/bin/npm-22 "$NODE_SHIM/npm"
-ln -sf /usr/bin/npx-22 "$NODE_SHIM/npx"
+ln -sf "/usr/bin/node-${NODE_MAJOR}" "$NODE_SHIM/node"
+ln -sf "/usr/bin/npm-${NODE_MAJOR}" "$NODE_SHIM/npm"
+ln -sf "/usr/bin/npx-${NODE_MAJOR}" "$NODE_SHIM/npx"
 export PATH="$NODE_SHIM:$PATH"
 echo "toolchain: node $(node --version), npm $(npm --version)"
 
 npm install --no-audit --no-fund --silent || { echo "npm install FAILED"; exit 1; }
+
+# `npm install` does NOT rebuild a native module already in node_modules when the node
+# major changes (measured, alpha-engine-config-I12116: it exits 0 and leaves the old
+# NODE_MODULE_VERSION in place), so a runtime switch — or its rollback — would deploy
+# green and crash-loop the unit. Probe the ABI under the pinned node; rebuild on mismatch.
+# >>> native-abi-probe
+abi_probe() { node -e 'require("better-sqlite3")(":memory:").close()'; }
+if probe_err=$(abi_probe 2>&1); then
+  echo "better-sqlite3 ABI OK under node $(node --version)"
+else
+  echo "better-sqlite3 does not load under node $(node --version): $(printf '%s\n' "$probe_err" | grep -m1 'NODE_MODULE_VERSION' || printf '%s\n' "$probe_err" | head -n1)"
+  echo "rebuilding better-sqlite3 against this ABI"
+  npm rebuild better-sqlite3 || { echo "better-sqlite3 rebuild FAILED"; exit 1; }
+  abi_probe || { echo "better-sqlite3 ABI probe FAILED after rebuild"; exit 1; }
+  echo "better-sqlite3 rebuilt; ABI OK under node $(node --version)"
+fi
+# <<< native-abi-probe
 npm run build || { echo "build FAILED"; exit 1; }
 
 # Schema migration on EVERY deploy — idempotent (better-auth migrate only applies
