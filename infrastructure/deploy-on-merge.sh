@@ -24,12 +24,13 @@ cd "$REPO"
 # /usr/bin/node still points at node-18.
 #
 # NODE_MAJOR must equal the major in nousergon-auth.service's ExecStart (asserted just
-# below, and in src/deploy-node-runtime.test.ts). alpha-engine-config-I12116 moves the
-# runtime to 24 in two PRs: this one adds the side-by-side install, the default-node
-# assert and the ABI probe while still on 22 (a no-op on the current box); the second
-# flips NODE_MAJOR and ExecStart together. Rolling back is a revert of the second PR
-# alone — safe ONLY because the probe below stays and rebuilds for the older ABI.
-NODE_MAJOR=22
+# below, and in src/deploy-node-runtime.test.ts). alpha-engine-config-I12116 moved the
+# runtime to 24 in two PRs: the first added the side-by-side install, the default-node
+# assert and the ABI probe while still on 22; the second flipped NODE_MAJOR and
+# ExecStart together, so the box runs the major package.json `engines.node` declares
+# and CI tests. Rolling back is a revert of the second PR alone — safe ONLY because the
+# probe below stays and rebuilds for the older ABI.
+NODE_MAJOR=24
 UNIT_NODE=$(sed -n 's|^ExecStart=/usr/bin/node-\([0-9][0-9]*\) .*|\1|p' "$REPO/infrastructure/nousergon-auth.service")
 [ "$UNIT_NODE" = "$NODE_MAJOR" ] || { echo "runtime mismatch: deploy builds with node-${NODE_MAJOR} but the unit runs node-${UNIT_NODE:-?} — flip NODE_MAJOR and ExecStart together"; exit 1; }
 
@@ -49,6 +50,31 @@ ln -sf "/usr/bin/npm-${NODE_MAJOR}" "$NODE_SHIM/npm"
 ln -sf "/usr/bin/npx-${NODE_MAJOR}" "$NODE_SHIM/npx"
 export PATH="$NODE_SHIM:$PATH"
 echo "toolchain: node $(node --version), npm $(npm --version)"
+
+# The declared runtime and the actual one must agree (alpha-engine-config-I12116).
+# `npm install --silent` hides EBADENGINE, so a distro package below the package.json
+# `engines.node` floor would otherwise deploy green on an undeclared runtime. Checked
+# here, before npm touches node_modules, so a refusal leaves the running unit as it was.
+# >>> engines-floor
+engines_floor_check() {
+  node -e '
+    const want = (require("./package.json").engines || {}).node || "";
+    const m = /^>=\s*(\d+)\.(\d+)\.(\d+)$/.exec(want.trim());
+    if (!m) { console.log(`engines.node "${want}" is not a plain >=X.Y.Z floor`); process.exit(2); }
+    const have = process.versions.node.split(".").map(Number);
+    const floor = m.slice(1).map(Number);
+    for (let i = 0; i < 3; i++) {
+      if (have[i] !== floor[i]) {
+        if (have[i] > floor[i]) break;
+        console.log(`node v${process.versions.node} is below engines.node ${want}`);
+        process.exit(1);
+      }
+    }
+    console.log(`node v${process.versions.node} satisfies engines.node ${want}`);
+  '
+}
+engines_floor_check || { echo "engines floor FAILED: install a node-${NODE_MAJOR} that meets package.json engines.node, or rule on the floor (alpha-engine-config-I12116)"; exit 1; }
+# <<< engines-floor
 
 npm install --no-audit --no-fund --silent || { echo "npm install FAILED"; exit 1; }
 
