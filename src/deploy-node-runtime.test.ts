@@ -150,3 +150,63 @@ touch ${JSON.stringify(marker)}
     expect(r.out).toContain("ABI probe FAILED after rebuild");
   });
 });
+
+// The box must run a node that meets package.json engines.node, not merely the right
+// major: `npm install --silent` hides EBADENGINE, so a distro nodejs24 below the
+// declared floor would otherwise deploy green on an undeclared runtime.
+// alpha-engine-config-I12116.
+describe("deploy-on-merge.sh engines floor", () => {
+  const FLOOR_START = "# >>> engines-floor\n";
+  const FLOOR_END = "# <<< engines-floor\n";
+  let dir: string | undefined;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  });
+
+  function runFloor(engine: string | undefined) {
+    dir = mkdtempSync(join(tmpdir(), "nousergon-auth-engines-"));
+    const pkg = engine === undefined ? { name: "x" } : { name: "x", engines: { node: engine } };
+    writeFileSync(join(dir, "package.json"), JSON.stringify(pkg));
+    return runBash(`NODE_MAJOR=${scriptMajor()}\n${span(FLOOR_START, FLOOR_END)}`, process.env, dir);
+  }
+
+  it("runs before npm install touches node_modules", () => {
+    const at = SCRIPT.indexOf(FLOOR_START);
+    expect(at).toBeGreaterThan(SCRIPT.indexOf('export PATH="$NODE_SHIM:$PATH"'));
+    expect(at).toBeLessThan(SCRIPT.indexOf("npm install --no-audit"));
+  });
+
+  it("the repo's own engines.node is a floor the check can read", () => {
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf-8"));
+    expect(pkg.engines?.node).toMatch(/^>=\s*\d+\.\d+\.\d+$/);
+    expect(pkg.engines.node).toMatch(new RegExp(`^>=\\s*${scriptMajor()}\\.`));
+  });
+
+  it("passes when the running node meets the floor exactly", () => {
+    const r = runFloor(`>=${process.versions.node}`);
+    expect(r.out).toContain("satisfies engines.node");
+    expect(r.status).toBe(0);
+  });
+
+  it("passes when the running node is above the floor", () => {
+    const r = runFloor(">=0.0.1");
+    expect(r.status).toBe(0);
+  });
+
+  it("refuses the deploy when the running node is below the floor", () => {
+    const [maj] = process.versions.node.split(".").map(Number);
+    const r = runFloor(`>=${maj}.${999}.0`);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("is below engines.node");
+    expect(r.out).toContain("engines floor FAILED");
+  });
+
+  it("refuses an engines.node it cannot read rather than passing it", () => {
+    for (const engine of [undefined, "^24.15.0", ">=24"]) {
+      const r = runFloor(engine);
+      expect(r.status, String(engine)).toBe(1);
+      expect(r.out).toContain("not a plain >=X.Y.Z floor");
+    }
+  });
+});
